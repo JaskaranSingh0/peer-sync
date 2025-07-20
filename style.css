@@ -1,0 +1,165 @@
+/* Basic Sidebar Styling */
+#peersync-sidebar {
+    position: fixed;
+    top: 60px; /* Adjust based on YouTube's header */
+    right: 10px;
+    width: 350px;
+    height: calc(100vh - 80px);
+    z-index: 9999;
+    border-radius: 12px;
+    padding: 15px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    transition: right 0.3s ease-in-out;
+}
+
+/* Collapsed State */
+#peersync-sidebar.collapsed {
+    right: -330px; /* Hide most of the sidebar */
+}
+
+#peersync-sidebar.collapsed #peersync-collapse-btn {
+    transform: scaleX(-1);
+}
+
+
+/* YouTube Dark Theme */
+.peersync-theme-dark {
+    background-color: #212121;
+    color: #ffffff;
+    border: 1px solid #3d3d3d;
+}
+
+.peersync-theme-dark button {
+    background-color: #3d3d3d;
+    color: #ffffff;
+    border: 1px solid #5a5a5a;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.peersync-theme-dark button:hover {
+    background-color: #5a5a5a;
+}
+
+.peersync-theme-dark input {
+    background-color: #121212;
+    color: #ffffff;
+    border: 1px solid #3d3d3d;
+    padding: 8px;
+    border-radius: 8px;
+}
+
+/* Layout */
+.peersync-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#peersync-chat-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+#peersync-chat-messages {
+    flex-grow: 1;
+    background-color: #121212;
+    border-radius: 8px;
+    padding: 10px;
+    overflow-y: auto;
+}
+
+#peersync-chat-input-container {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+#peersync-chat-input {
+    flex-grow: 1;
+}
+
+/* Styling for the new session display container */
+#peersync-session-display-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+#peersync-session-id-display {
+    flex-grow: 1;
+    overflow-wrap: break-word; /* Prevents long IDs from breaking the layout */
+    font-family: monospace;
+    background-color: #121212;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+/* Styling for host control buttons */
+.user-controls {
+    margin-left: auto; /* Pushes buttons to the right */
+    display: flex;
+    gap: 5px;
+}
+
+.user-controls button {
+    background-color: #5a5a5a;
+    border: none;
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.user-controls button:hover {
+    background-color: #717171;
+}
+
+.user-controls button.active {
+    background-color: #4CAF50; /* Green for active state */
+}
+
+/* Styling for the user list items */
+#peersync-user-list li {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+}
+
+/* Video title styling */
+#peersync-video-title-container {
+    margin: 10px 0;
+    text-align: center;
+    background-color: #121212;
+    border-radius: 8px;
+    padding: 8px;
+    overflow: hidden;
+}
+
+#peersync-video-title {
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Video timer styling */
+#peersync-video-timer-container {
+    margin: 10px 0;
+    text-align: center;
+    background-color: #121212;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#peersync-video-timer {
+    font-family: monospace;
+    font-size: 16px;
+}
