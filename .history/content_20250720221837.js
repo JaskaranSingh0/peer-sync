@@ -31,6 +31,11 @@ async function initialize() {
         injectPageScripts();
         findVideoAndAddListeners();
         
+        // Add a timeout to check if PeerJS loaded successfully
+        setTimeout(() => {
+            window.postMessage({ type: 'PEERSYNC_CHECK_PEERJS' }, '*');
+        }, 3000);
+        
         chrome.storage.local.get(['nickname'], (result) => {
             myNickname = result.nickname || `User${Math.floor(Math.random() * 1000)}`;
         });
@@ -59,11 +64,17 @@ function setupUIEventListeners() {
 
     if (joinBtn) joinBtn.addEventListener('click', () => {
         const joinInput = document.getElementById('peersync-join-input');
-        const peerId = joinInput.value;
+        const peerId = joinInput.value.trim(); // Add trim to remove whitespace
         if (peerId) {
+            console.log(`[Controller] Attempting to join party with ID: ${peerId}`);
             isHost = false;
             hostPeerId = peerId;
             window.postMessage({ type: 'PEERSYNC_JOIN_PARTY', payload: { peerId } }, '*');
+            // Give visual feedback that join was attempted
+            displayChatMessage('System', `Attempting to join party with ID: ${peerId}...`);
+        } else {
+            console.warn('[Controller] No peer ID provided in join input');
+            displayChatMessage('System', 'Please enter a valid party code to join.');
         }
     });
 
@@ -462,18 +473,54 @@ window.addEventListener('message', (event) => {
             alert(`Error: ${payload.message}`);
             if (!isHost) resetPartyState();
             break;
+        
+        case 'PEERSYNC_CHECK_PEERJS':
+            // Check if PeerJS loaded by sending a message to peer-logic.js
+            window.postMessage({ type: 'PEERSYNC_PEERJS_STATUS_REQUEST' }, '*');
+            break;
+        
+        case 'PEERSYNC_PEERJS_STATUS_RESPONSE':
+            if (!payload.loaded) {
+                displayChatMessage('System', 'PeerJS library failed to load. Connection features will not work. Please refresh the page.');
+            }
+            break;
     }
 });
 
 // --- Helper functions ---
 function injectPageScripts() {
     const injectScript = (filePath) => {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL(filePath);
-        (document.head || document.documentElement).appendChild(script);
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL(filePath);
+            script.onload = () => {
+                console.log(`[Controller] Successfully loaded script: ${filePath}`);
+                resolve();
+            };
+            script.onerror = (error) => {
+                console.error(`[Controller] Failed to load script: ${filePath}`, error);
+                reject(error);
+            };
+            (document.head || document.documentElement).appendChild(script);
+        });
     };
-    injectScript('peerjs.min.js');
-    injectScript('peer-logic.js');
+    
+    // Load PeerJS first, then peer-logic.js
+    injectScript('peerjs.min.js')
+        .then(() => {
+            // Wait a bit for PeerJS to initialize
+            return new Promise(resolve => setTimeout(resolve, 100));
+        })
+        .then(() => injectScript('peer-logic.js'))
+        .catch(error => {
+            console.error('[Controller] Script injection failed:', error);
+            setTimeout(() => {
+                const chatMessages = document.getElementById('peersync-chat-messages');
+                if (chatMessages) {
+                    displayChatMessage('System', 'Failed to load required scripts. Please refresh the page.');
+                }
+            }, 1000);
+        });
 }
 function findVideoAndAddListeners() {
     videoElement = document.querySelector('.html5-main-video');

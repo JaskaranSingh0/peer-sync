@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "description": "A P2P extension for watching YouTube together.",
   "permissions": [
-    "storage",
     "activeTab"
   ],
   "host_permissions": [
@@ -25,8 +24,7 @@
     {
       "matches": ["*://*.youtube.com/watch*"],
       "css": ["style.css"],
-      "js": ["content.js"],
-      "run_at": "document_end"
+      "js": ["content.js"]
     }
   ],
   "web_accessible_resources": [
@@ -36,6 +34,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self';"
+    "extension_pages": "script-src 'self' 'unsafe-eval'; object-src 'self';",
+    "sandbox": "sandbox allow-scripts allow-same-origin; script-src 'self' 'unsafe-eval' 'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js';"
   }
 }

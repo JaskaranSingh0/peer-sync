@@ -1,34 +1,17 @@
 // peer-logic.js - The Injector (with Definitive STUN + TURN Configuration)
 console.log('[PeerLogic] Script loaded. Waiting for commands.');
 
-// Check if PeerJS is loaded immediately
-if (typeof Peer !== 'function') {
-    console.error('[PeerLogic] PeerJS library not loaded correctly!');
-    window.postMessage({ 
-        type: 'PEERSYNC_ERROR', 
-        payload: { message: 'PeerJS library failed to load. Try refreshing the page.' } 
-    }, '*');
-}
-
 let peer = null;
 const connections = new Map();
 
-// NEW: Enhanced configuration for cross-device connectivity
+// NEW: This is the definitive configuration including the PeerJS TURN server.
 const peerConfig = {
     'iceServers': [
-        // Multiple STUN servers for better NAT traversal
+        // Public STUN servers for the initial attempt
         { 'urls': 'stun:stun.l.google.com:19302' },
         { 'urls': 'stun:stun1.l.google.com:19302' },
-        { 'urls': 'stun:stun2.l.google.com:19302' },
-        { 'urls': 'stun:stun3.l.google.com:19302' },
-        { 'urls': 'stun:stun4.l.google.com:19302' },
-        
-        // Additional public STUN servers for redundancy
-        { 'urls': 'stun:stun.stunprotocol.org:3478' },
-        { 'urls': 'stun:stun.voiparound.com' },
-        { 'urls': 'stun:stun.voipbuster.com' },
 
-        // The PeerJS TURN servers for fallback when P2P fails
+        // The PeerJS TURN server for fallback when P2P fails
         {
             'urls': 'turn:us-0.turn.peerjs.com:3478',
             'username': 'peerjs',
@@ -39,10 +22,7 @@ const peerConfig = {
             'username': 'peerjs',
             'credential': 'peerjsp'
         }
-    ],
-    // Enhanced ICE configuration for cross-device connections
-    'iceCandidatePoolSize': 10,
-    'iceTransportPolicy': 'all'
+    ]
 };
 
 window.addEventListener('message', (event) => {
@@ -99,27 +79,7 @@ function createParty() {
     });
 
     peer.on('connection', (conn) => {
-        console.log(`[PeerLogic] Incoming connection from peer: ${conn.peer}`);
         connections.set(conn.peer, conn);
-        
-        // Handle connection established for host side
-        conn.on('open', () => {
-            console.log(`[PeerLogic] Data channel opened with incoming peer: ${conn.peer}`);
-            
-            // Send a welcome message to test the connection
-            setTimeout(() => {
-                if (conn.open) {
-                    conn.send({ type: 'WELCOME', message: 'Welcome to the party!' });
-                    console.log(`[PeerLogic] Sent welcome message to ${conn.peer}`);
-                }
-            }, 500);
-            
-            window.postMessage({ 
-                type: 'PEERSYNC_PEER_JOINED', 
-                payload: { peerId: conn.peer } 
-            }, '*');
-        });
-        
         setupConnectionEventListeners(conn);
     });
 
@@ -136,16 +96,6 @@ function joinParty(hostPeerId) {
     if (peer) {
         console.log('[PeerLogic] Destroying existing peer before creating new one');
         peer.destroy();
-    }
-    
-    // Check if PeerJS is available before creating a peer
-    if (typeof Peer !== 'function') {
-        console.error('[PeerLogic] PeerJS not available when joining party');
-        window.postMessage({ 
-            type: 'PEERSYNC_ERROR', 
-            payload: { message: 'PeerJS library not loaded. Please refresh the page.' } 
-        }, '*');
-        return;
     }
     
     // Generate random ID to avoid collisions
@@ -174,26 +124,11 @@ function joinParty(hostPeerId) {
                 serialization: "json"
             });
             
-            // Add connection timeout (longer for cross-device connections)
-            let connectionTimeout = setTimeout(() => {
-                console.warn('[PeerLogic] Connection attempt timed out after 20 seconds');
-                window.postMessage({ 
-                    type: 'PEERSYNC_ERROR', 
-                    payload: { message: 'Connection timed out. This often happens with cross-device connections due to firewalls/NAT. Try using the same WiFi network.' } 
-                }, '*');
-            }, 20000);
-            
             conn.on('open', () => {
-                clearTimeout(connectionTimeout);
                 console.log(`[PeerLogic] Connection established to host: ${hostPeerId}`);
-                window.postMessage({ 
-                    type: 'PEERSYNC_CONNECTION_ESTABLISHED', 
-                    payload: { peerId: hostPeerId } 
-                }, '*');
             });
             
             conn.on('error', (err) => {
-                clearTimeout(connectionTimeout);
                 console.error('[PeerLogic] Connection-specific error:', err);
                 window.postMessage({ 
                     type: 'PEERSYNC_ERROR', 
@@ -201,7 +136,7 @@ function joinParty(hostPeerId) {
                 }, '*');
             });
 
-            connections.set(hostPeerId, conn); // Use hostPeerId as key, not conn.peer
+            connections.set(conn.peer, conn);
             setupConnectionEventListeners(conn);
         } catch (err) {
             console.error('[PeerLogic] Error connecting to host:', err);
@@ -235,60 +170,23 @@ function joinParty(hostPeerId) {
 }
 
 function setupConnectionEventListeners(conn) {
-    console.log(`[PeerLogic] Setting up event listeners for connection: ${conn.peer}`);
-    
-    // Enhanced ICE connection monitoring for cross-device debugging
-    if (conn.peerConnection) {
-        conn.peerConnection.oniceconnectionstatechange = () => {
-            const iceState = conn.peerConnection.iceConnectionState;
-            console.log(`[PeerLogic] ICE connection state with ${conn.peer}: ${iceState}`);
-            
-            if (iceState === 'failed') {
-                console.error(`[PeerLogic] ICE connection failed with ${conn.peer} - likely NAT/firewall issue`);
-                window.postMessage({ 
-                    type: 'PEERSYNC_ERROR', 
-                    payload: { message: `Connection failed with ${conn.peer} - network/firewall blocking connection` } 
-                }, '*');
-            } else if (iceState === 'disconnected') {
-                console.warn(`[PeerLogic] ICE connection disconnected with ${conn.peer}`);
-            } else if (iceState === 'connected' || iceState === 'completed') {
-                console.log(`[PeerLogic] ICE connection established with ${conn.peer}`);
-            }
-        };
-        
-        conn.peerConnection.onicegatheringstatechange = () => {
-            console.log(`[PeerLogic] ICE gathering state with ${conn.peer}: ${conn.peerConnection.iceGatheringState}`);
-        };
-    }
-    
+    conn.on('open', () => {
+        window.postMessage({ type: 'PEERSYNC_CONNECTION_ESTABLISHED', payload: { peerId: conn.peer } }, '*');
+    });
     conn.on('data', (data) => {
-        console.log(`[PeerLogic] Data received from ${conn.peer}:`, data);
-        
-        // Handle special messages
-        if (data.type === 'WELCOME') {
-            console.log(`[PeerLogic] Received welcome message: ${data.message}`);
-            // Send acknowledgment back
-            if (conn.open) {
-                conn.send({ type: 'WELCOME_ACK', message: 'Thanks for the welcome!' });
-            }
-        } else if (data.type === 'WELCOME_ACK') {
-            console.log(`[PeerLogic] Received welcome acknowledgment: ${data.message}`);
-        }
-        
         window.postMessage({ type: 'PEERSYNC_DATA_RECEIVED', payload: { ...data, senderId: conn.peer } }, '*');
     });
-    
     conn.on('close', () => {
-        console.log(`[PeerLogic] Connection closed with peer: ${conn.peer}`);
         connections.delete(conn.peer);
         window.postMessage({ type: 'PEERSYNC_CONNECTION_CLOSED', payload: { peerId: conn.peer } }, '*');
     });
-    
-    conn.on('error', (err) => {
-        console.error(`[PeerLogic] Connection error with ${conn.peer}:`, err);
-        window.postMessage({ 
-            type: 'PEERSYNC_ERROR', 
-            payload: { message: `Connection error with ${conn.peer}: ${err.message || err}` } 
-        }, '*');
-    });
+}
+
+// Check if PeerJS is loaded
+if (typeof Peer !== 'function') {
+    console.error('[PeerLogic] PeerJS library not loaded correctly!');
+    window.postMessage({ 
+        type: 'PEERSYNC_ERROR', 
+        payload: { message: 'PeerJS library failed to load. Try refreshing the page.' } 
+    }, '*');
 }

@@ -31,6 +31,11 @@ async function initialize() {
         injectPageScripts();
         findVideoAndAddListeners();
         
+        // Add a timeout to check if PeerJS loaded successfully
+        setTimeout(() => {
+            window.postMessage({ type: 'PEERSYNC_CHECK_PEERJS' }, '*');
+        }, 3000);
+        
         chrome.storage.local.get(['nickname'], (result) => {
             myNickname = result.nickname || `User${Math.floor(Math.random() * 1000)}`;
         });
@@ -59,11 +64,17 @@ function setupUIEventListeners() {
 
     if (joinBtn) joinBtn.addEventListener('click', () => {
         const joinInput = document.getElementById('peersync-join-input');
-        const peerId = joinInput.value;
+        const peerId = joinInput.value.trim(); // Add trim to remove whitespace
         if (peerId) {
+            console.log(`[Controller] Attempting to join party with ID: ${peerId}`);
             isHost = false;
             hostPeerId = peerId;
             window.postMessage({ type: 'PEERSYNC_JOIN_PARTY', payload: { peerId } }, '*');
+            // Give visual feedback that join was attempted
+            displayChatMessage('System', `Attempting to join party with ID: ${peerId}...`);
+        } else {
+            console.warn('[Controller] No peer ID provided in join input');
+            displayChatMessage('System', 'Please enter a valid party code to join.');
         }
     });
 
@@ -309,11 +320,6 @@ window.addEventListener('message', (event) => {
                     // ONLY NON-HOSTS should obey this message.
                     if (!isHost) {
                         isSyncing = true;
-                        // Store the host's current time when we receive any command
-                        if (payload.time) {
-                            hostCurrentTime = payload.time;
-                        }
-                        
                         switch (payload.action) {
                             case 'PLAY': videoElement.play(); break;
                             case 'PAUSE': videoElement.pause(); break;
@@ -467,18 +473,54 @@ window.addEventListener('message', (event) => {
             alert(`Error: ${payload.message}`);
             if (!isHost) resetPartyState();
             break;
+        
+        case 'PEERSYNC_CHECK_PEERJS':
+            // Check if PeerJS loaded by sending a message to peer-logic.js
+            window.postMessage({ type: 'PEERSYNC_PEERJS_STATUS_REQUEST' }, '*');
+            break;
+        
+        case 'PEERSYNC_PEERJS_STATUS_RESPONSE':
+            if (!payload.loaded) {
+                displayChatMessage('System', 'PeerJS library failed to load. Connection features will not work. Please refresh the page.');
+            }
+            break;
     }
 });
 
 // --- Helper functions ---
 function injectPageScripts() {
     const injectScript = (filePath) => {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL(filePath);
-        (document.head || document.documentElement).appendChild(script);
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL(filePath);
+            script.onload = () => {
+                console.log(`[Controller] Successfully loaded script: ${filePath}`);
+                resolve();
+            };
+            script.onerror = (error) => {
+                console.error(`[Controller] Failed to load script: ${filePath}`, error);
+                reject(error);
+            };
+            (document.head || document.documentElement).appendChild(script);
+        });
     };
-    injectScript('peerjs.min.js');
-    injectScript('peer-logic.js');
+    
+    // Load PeerJS first, then peer-logic.js
+    injectScript('peerjs.min.js')
+        .then(() => {
+            // Wait a bit for PeerJS to initialize
+            return new Promise(resolve => setTimeout(resolve, 100));
+        })
+        .then(() => injectScript('peer-logic.js'))
+        .catch(error => {
+            console.error('[Controller] Script injection failed:', error);
+            setTimeout(() => {
+                const chatMessages = document.getElementById('peersync-chat-messages');
+                if (chatMessages) {
+                    displayChatMessage('System', 'Failed to load required scripts. Please refresh the page.');
+                }
+            }, 1000);
+        });
 }
 function findVideoAndAddListeners() {
     videoElement = document.querySelector('.html5-main-video');
@@ -543,17 +585,10 @@ function applyVideoControlRestrictions() {
     
     // Function to handle and potentially block events
     const handleVideoEvent = (event) => {
-        // Only block if in a party AND user is not the host AND doesn't have control
-        if (hostPeerId && !isHost && !canControl) {
+        // Only block if user is not the host and doesn't have control
+        if (!isHost && !canControl) {
             event.preventDefault();
             event.stopPropagation();
-            
-            // If user tried to interact, immediately re-sync to host's state
-            if (videoElement.currentTime !== hostCurrentTime && !isSyncing) {
-                isSyncing = true;
-                videoElement.currentTime = hostCurrentTime;
-                setTimeout(() => { isSyncing = false; }, 100);
-            }
             
             // Optionally show a message to the user
             const now = Date.now();
@@ -572,92 +607,21 @@ function applyVideoControlRestrictions() {
     videoElement.removeEventListener('play', handleVideoEvent, true);
     videoElement.removeEventListener('pause', handleVideoEvent, true);
     videoElement.removeEventListener('seeking', handleVideoEvent, true);
-    videoElement.removeEventListener('seeked', handleVideoEvent, true);
     
     // Add event listeners in capture phase to intercept before default handling
     videoElement.addEventListener('click', handleVideoEvent, true);
     videoElement.addEventListener('play', handleVideoEvent, true);
     videoElement.addEventListener('pause', handleVideoEvent, true);
     videoElement.addEventListener('seeking', handleVideoEvent, true);
-    videoElement.addEventListener('seeked', handleVideoEvent, true);
     
     // Also disable keyboard shortcuts by adding a document-level handler
     document.removeEventListener('keydown', handleKeyboardShortcuts, true);
     document.addEventListener('keydown', handleKeyboardShortcuts, true);
-    
-    // If we're in a party but don't have control, add a physical blocker over the video controls
-    if (hostPeerId && !isHost && !canControl) {
-        addVideoControlBlocker();
-    } else {
-        removeVideoControlBlocker();
-    }
-}
-
-// Add a physical overlay to block interaction with YouTube controls
-function addVideoControlBlocker() {
-    // Remove any existing blocker first
-    removeVideoControlBlocker();
-    
-    // Create blocker element
-    const blocker = document.createElement('div');
-    blocker.id = 'peersync-control-blocker';
-    blocker.style.cssText = `
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 60px; /* Height of YouTube controls */
-        background: transparent;
-        z-index: 9999;
-        cursor: not-allowed;
-    `;
-    
-    // Create message element
-    const message = document.createElement('div');
-    message.style.cssText = `
-        position: absolute;
-        bottom: 70px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
-        padding: 8px 12px;
-        border-radius: 4px;
-        font-size: 14px;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.3s;
-    `;
-    message.textContent = "Ask host for control permission";
-    
-    // Show message on hover
-    blocker.addEventListener('mouseenter', () => {
-        message.style.opacity = '1';
-    });
-    
-    blocker.addEventListener('mouseleave', () => {
-        message.style.opacity = '0';
-    });
-    
-    // Add to video container
-    const videoContainer = document.querySelector('.html5-video-container');
-    if (videoContainer) {
-        blocker.appendChild(message);
-        videoContainer.appendChild(blocker);
-    }
-}
-
-function removeVideoControlBlocker() {
-    const existingBlocker = document.getElementById('peersync-control-blocker');
-    if (existingBlocker) {
-        existingBlocker.remove();
-    }
 }
 
 // Add this function to handle keyboard shortcuts
 function handleKeyboardShortcuts(event) {
-    // Only block if in a party AND user is not the host AND doesn't have control
-    if (hostPeerId && !isHost && !canControl) {
+    if (!isHost && !canControl) {
         // Block common YouTube keyboard shortcuts for video control
         const controlKeys = ['k', ' ', 'j', 'l', 'ArrowLeft', 'ArrowRight'];
         if (controlKeys.includes(event.key)) {

@@ -31,6 +31,11 @@ async function initialize() {
         injectPageScripts();
         findVideoAndAddListeners();
         
+        // Add a timeout to check if PeerJS loaded successfully
+        setTimeout(() => {
+            window.postMessage({ type: 'PEERSYNC_CHECK_PEERJS' }, '*');
+        }, 3000);
+        
         chrome.storage.local.get(['nickname'], (result) => {
             myNickname = result.nickname || `User${Math.floor(Math.random() * 1000)}`;
         });
@@ -48,6 +53,7 @@ function setupUIEventListeners() {
     const chatSendBtn = document.getElementById('peersync-chat-send-btn');
     const chatInput = document.getElementById('peersync-chat-input');
     const copyBtn = document.getElementById('peersync-copy-btn');
+    const testConnectionBtn = document.getElementById('peersync-test-connection-btn');
 
     if (collapseBtn) collapseBtn.addEventListener('click', () => document.getElementById('peersync-sidebar').classList.toggle('collapsed'));
 
@@ -59,11 +65,17 @@ function setupUIEventListeners() {
 
     if (joinBtn) joinBtn.addEventListener('click', () => {
         const joinInput = document.getElementById('peersync-join-input');
-        const peerId = joinInput.value;
+        const peerId = joinInput.value.trim(); // Add trim to remove whitespace
         if (peerId) {
+            console.log(`[Controller] Attempting to join party with ID: ${peerId}`);
             isHost = false;
             hostPeerId = peerId;
             window.postMessage({ type: 'PEERSYNC_JOIN_PARTY', payload: { peerId } }, '*');
+            // Give visual feedback that join was attempted
+            displayChatMessage('System', `Attempting to join party with ID: ${peerId}...`);
+        } else {
+            console.warn('[Controller] No peer ID provided in join input');
+            displayChatMessage('System', 'Please enter a valid party code to join.');
         }
     });
 
@@ -83,6 +95,14 @@ function setupUIEventListeners() {
                     setTimeout(() => { copyBtn.innerText = 'Copy'; }, 2000);
                 });
             }
+        });
+    }
+
+    if (testConnectionBtn) {
+        testConnectionBtn.addEventListener('click', () => {
+            console.log('[Controller] Testing connection...');
+            sendDataToPeers({ type: 'CONNECTION_TEST', message: 'Testing connection from ' + (isHost ? 'host' : 'joiner'), timestamp: Date.now() });
+            displayChatMessage('System', 'Connection test sent...');
         });
     }
 }
@@ -289,6 +309,7 @@ window.addEventListener('message', (event) => {
 
         case 'PEERSYNC_CONNECTION_ESTABLISHED':
             if (!isHost) {
+                displayChatMessage('System', `✅ Successfully connected to party! Welcome to the sync session.`);
                 const name = prompt("Please enter your nickname:", myNickname);
                 if (name && name.trim()) {
                     myNickname = name.trim();
@@ -296,9 +317,50 @@ window.addEventListener('message', (event) => {
                 }
                 partyUsers.set(myPeerId, { nickname: myNickname, canControl: false });
                 sendDataToPeers({ type: 'USER_INFO', nickname: myNickname });
+                
+                // Request initial sync from host
+                setTimeout(() => {
+                    sendDataToPeers({ type: 'REQUEST_SYNC' });
+                }, 500);
             }
+            
+            // Show test connection button for both host and joiner
+            const testBtn = document.getElementById('peersync-test-connection-btn');
+            if (testBtn) testBtn.style.display = 'inline-block';
+            
             // NEW: Start sync checks for the new participant
             startSyncChecks();
+            break;
+
+        case 'PEERSYNC_PEER_JOINED':
+            // This is called when someone joins YOUR party (you're the host)
+            if (isHost) {
+                console.log(`[Controller] Peer ${payload.peerId} joined the party`);
+                displayChatMessage('System', `A peer has joined the party! (${payload.peerId.slice(-6)})`);
+                
+                // Show test connection button for host too
+                const testBtn = document.getElementById('peersync-test-connection-btn');
+                if (testBtn) testBtn.style.display = 'inline-block';
+                
+                // Send current video state to the new joiner immediately
+                setTimeout(() => {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        console.log(`[Controller] Sending initial sync to new peer: currentTime=${video.currentTime}, paused=${video.paused}`);
+                        sendDataToPeers({
+                            type: 'VIDEO_ACTION',
+                            action: 'sync',
+                            currentTime: video.currentTime,
+                            isPlaying: !video.paused
+                        });
+                        
+                        // Also send user list
+                        setTimeout(() => {
+                            broadcastUserList();
+                        }, 200);
+                    }
+                }, 1000); // Give them time to set up
+            }
             break;
 
         case 'PEERSYNC_DATA_RECEIVED':
@@ -310,9 +372,16 @@ window.addEventListener('message', (event) => {
                     if (!isHost) {
                         isSyncing = true;
                         switch (payload.action) {
-                            case 'PLAY': videoElement.play(); break;
-                            case 'PAUSE': videoElement.pause(); break;
+                            case 'PLAY': 
+                                console.log('[Controller] Received PLAY command from host');
+                                videoElement.play(); 
+                                break;
+                            case 'PAUSE': 
+                                console.log('[Controller] Received PAUSE command from host');
+                                videoElement.pause(); 
+                                break;
                             case 'SEEK': 
+                                console.log(`[Controller] Received SEEK command: ${payload.time}s, playing: ${payload.isPlaying}`);
                                 videoElement.currentTime = payload.time; 
                                 // After seeking, maintain the correct play state
                                 if (payload.isPlaying) {
@@ -321,8 +390,22 @@ window.addEventListener('message', (event) => {
                                     videoElement.pause();
                                 }
                                 break;
+                            case 'sync':
+                                console.log(`[Controller] Received SYNC command: ${payload.currentTime}s, playing: ${payload.isPlaying}`);
+                                // For cross-device sync, be more aggressive about time differences
+                                const timeDiff = Math.abs(videoElement.currentTime - payload.currentTime);
+                                if (timeDiff > 1.0) { // Sync if more than 1 second off
+                                    videoElement.currentTime = payload.currentTime;
+                                }
+                                if (payload.isPlaying && videoElement.paused) {
+                                    videoElement.play();
+                                } else if (!payload.isPlaying && !videoElement.paused) {
+                                    videoElement.pause();
+                                }
+                                displayChatMessage('System', `🔄 Synced to host video (${payload.currentTime.toFixed(1)}s)`);
+                                break;
                         }
-                        setTimeout(() => { isSyncing = false; }, 150);
+                        setTimeout(() => { isSyncing = false; }, 300); // Increased timeout for cross-device
                     }
                     break;
 
@@ -368,6 +451,40 @@ window.addEventListener('message', (event) => {
                         broadcastUserList();
                         updateUserListUI();
                     }
+                    break;
+
+                case 'REQUEST_SYNC':
+                    // Only host can respond to sync requests
+                    if (isHost) {
+                        const video = document.querySelector('video');
+                        if (video) {
+                            console.log(`[Controller] Sync requested by ${payload.senderId}, sending current state`);
+                            sendDataToPeers({
+                                type: 'VIDEO_ACTION',
+                                action: 'sync',
+                                currentTime: video.currentTime,
+                                isPlaying: !video.paused
+                            });
+                        }
+                    }
+                    break;
+
+                case 'CONNECTION_TEST':
+                    console.log(`[Controller] Connection test received from ${payload.senderId}: ${payload.message}`);
+                    displayChatMessage('System', `✅ Connection test received: ${payload.message}`);
+                    // Send a response back
+                    sendDataToPeers({ 
+                        type: 'CONNECTION_TEST_RESPONSE', 
+                        message: 'Response from ' + (isHost ? 'host' : 'joiner'),
+                        originalTimestamp: payload.timestamp,
+                        responseTimestamp: Date.now()
+                    });
+                    break;
+
+                case 'CONNECTION_TEST_RESPONSE':
+                    const latency = Date.now() - payload.originalTimestamp;
+                    console.log(`[Controller] Connection test response received, latency: ${latency}ms`);
+                    displayChatMessage('System', `✅ Connection test response received! Latency: ${latency}ms`);
                     break;
 
                 case 'USER_LIST_UPDATE':
@@ -462,18 +579,54 @@ window.addEventListener('message', (event) => {
             alert(`Error: ${payload.message}`);
             if (!isHost) resetPartyState();
             break;
+        
+        case 'PEERSYNC_CHECK_PEERJS':
+            // Check if PeerJS loaded by sending a message to peer-logic.js
+            window.postMessage({ type: 'PEERSYNC_PEERJS_STATUS_REQUEST' }, '*');
+            break;
+        
+        case 'PEERSYNC_PEERJS_STATUS_RESPONSE':
+            if (!payload.loaded) {
+                displayChatMessage('System', 'PeerJS library failed to load. Connection features will not work. Please refresh the page.');
+            }
+            break;
     }
 });
 
 // --- Helper functions ---
 function injectPageScripts() {
     const injectScript = (filePath) => {
-        const script = document.createElement('script');
-        script.src = chrome.runtime.getURL(filePath);
-        (document.head || document.documentElement).appendChild(script);
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL(filePath);
+            script.onload = () => {
+                console.log(`[Controller] Successfully loaded script: ${filePath}`);
+                resolve();
+            };
+            script.onerror = (error) => {
+                console.error(`[Controller] Failed to load script: ${filePath}`, error);
+                reject(error);
+            };
+            (document.head || document.documentElement).appendChild(script);
+        });
     };
-    injectScript('peerjs.min.js');
-    injectScript('peer-logic.js');
+    
+    // Load PeerJS first, then peer-logic.js
+    injectScript('peerjs.min.js')
+        .then(() => {
+            // Wait a bit for PeerJS to initialize
+            return new Promise(resolve => setTimeout(resolve, 100));
+        })
+        .then(() => injectScript('peer-logic.js'))
+        .catch(error => {
+            console.error('[Controller] Script injection failed:', error);
+            setTimeout(() => {
+                const chatMessages = document.getElementById('peersync-chat-messages');
+                if (chatMessages) {
+                    displayChatMessage('System', 'Failed to load required scripts. Please refresh the page.');
+                }
+            }, 1000);
+        });
 }
 function findVideoAndAddListeners() {
     videoElement = document.querySelector('.html5-main-video');

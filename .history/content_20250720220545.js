@@ -59,11 +59,17 @@ function setupUIEventListeners() {
 
     if (joinBtn) joinBtn.addEventListener('click', () => {
         const joinInput = document.getElementById('peersync-join-input');
-        const peerId = joinInput.value;
+        const peerId = joinInput.value.trim(); // Add trim to remove whitespace
         if (peerId) {
+            console.log(`[Controller] Attempting to join party with ID: ${peerId}`);
             isHost = false;
             hostPeerId = peerId;
             window.postMessage({ type: 'PEERSYNC_JOIN_PARTY', payload: { peerId } }, '*');
+            // Give visual feedback that join was attempted
+            displayChatMessage('System', `Attempting to join party with ID: ${peerId}...`);
+        } else {
+            console.warn('[Controller] No peer ID provided in join input');
+            displayChatMessage('System', 'Please enter a valid party code to join.');
         }
     });
 
@@ -470,6 +476,19 @@ function injectPageScripts() {
     const injectScript = (filePath) => {
         const script = document.createElement('script');
         script.src = chrome.runtime.getURL(filePath);
+        script.onerror = (error) => {
+            console.error(`[Controller] Failed to load script: ${filePath}`, error);
+            if (filePath.includes('peerjs')) {
+                // Try to load PeerJS from CDN as fallback
+                const fallbackScript = document.createElement('script');
+                fallbackScript.src = 'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js';
+                fallbackScript.onerror = () => {
+                    console.error('[Controller] Failed to load PeerJS from CDN as well');
+                    displayChatMessage('System', 'Failed to load PeerJS library. Please refresh the page.');
+                };
+                (document.head || document.documentElement).appendChild(fallbackScript);
+            }
+        };
         (document.head || document.documentElement).appendChild(script);
     };
     injectScript('peerjs.min.js');
