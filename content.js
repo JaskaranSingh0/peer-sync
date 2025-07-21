@@ -34,10 +34,20 @@ async function initialize() {
         // Add a timeout to check if PeerJS loaded successfully
         setTimeout(() => {
             window.postMessage({ type: 'PEERSYNC_CHECK_PEERJS' }, '*');
+            
+            // Also manually check if scripts are available
+            console.log('[Controller] Checking script availability...');
+            console.log('[Controller] PeerJS available:', typeof window.Peer);
+            console.log('[Controller] Script tags:', document.querySelectorAll('script[src*="peerjs"]').length, document.querySelectorAll('script[src*="peer-logic"]').length);
         }, 3000);
         
+        // Get nickname synchronously first with fallback
+        myNickname = `User${Math.floor(Math.random() * 1000)}`;
+        
         chrome.storage.local.get(['nickname'], (result) => {
-            myNickname = result.nickname || `User${Math.floor(Math.random() * 1000)}`;
+            if (result.nickname) {
+                myNickname = result.nickname;
+            }
         });
 
         // Add network change detection
@@ -59,12 +69,59 @@ function setupUIEventListeners() {
     const copyBtn = document.getElementById('peersync-copy-btn');
     const testConnectionBtn = document.getElementById('peersync-test-connection-btn');
 
-    if (collapseBtn) collapseBtn.addEventListener('click', () => document.getElementById('peersync-sidebar').classList.toggle('collapsed'));
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => {
+            const sidebar = document.getElementById('peersync-sidebar');
+            if (!sidebar) {
+                console.error('[Controller] Sidebar not found');
+                return;
+            }
+            
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            console.log('[Controller] Current collapsed state:', isCollapsed);
+            
+            const header = document.querySelector('.peersync-header');
+            const title = header.querySelector('h3');
+            
+            if (isCollapsed) {
+                // Expanding
+                sidebar.classList.remove('collapsed');
+                collapseBtn.textContent = '➡️';
+                // Move button back to original position (after title)
+                header.appendChild(collapseBtn);
+                console.log('[Controller] Sidebar expanded');
+            } else {
+                // Collapsing
+                sidebar.classList.add('collapsed');
+                collapseBtn.textContent = '⬅️';
+                // Move button before the title
+                header.insertBefore(collapseBtn, title);
+                console.log('[Controller] Sidebar collapsed');
+            }
+            
+            // Force a style recalculation
+            sidebar.offsetHeight;
+        });
+    }
 
     if (createBtn) createBtn.addEventListener('click', () => {
+        console.log('[Controller] Create Party button clicked');
         isHost = true;
         canControl = true;
+        console.log('[Controller] Sending PEERSYNC_CREATE_PARTY message');
         window.postMessage({ type: 'PEERSYNC_CREATE_PARTY' }, '*');
+        
+        // Add a timeout to check if peer-logic.js responded
+        setTimeout(() => {
+            if (!myPeerId) {
+                console.error('[Controller] No response from peer-logic.js after 3 seconds. Check if scripts loaded properly.');
+                displayChatMessage('System', 'Failed to create party. Scripts may not be loaded. Try refreshing the page.');
+            }
+        }, 3000);
+        
+        // Test message communication immediately
+        console.log('[Controller] Testing message communication...');
+        window.postMessage({ type: 'PEERSYNC_PEERJS_STATUS_REQUEST' }, '*');
     });
 
     if (joinBtn) joinBtn.addEventListener('click', () => {
@@ -97,6 +154,22 @@ function setupUIEventListeners() {
                 navigator.clipboard.writeText(partyCode).then(() => {
                     copyBtn.innerText = 'Copied!';
                     setTimeout(() => { copyBtn.innerText = 'Copy'; }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy to clipboard:', err);
+                    // Fallback for older browsers or when clipboard API fails
+                    const textArea = document.createElement('textarea');
+                    textArea.value = partyCode;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        copyBtn.innerText = 'Copied!';
+                        setTimeout(() => { copyBtn.innerText = 'Copy'; }, 2000);
+                    } catch (fallbackErr) {
+                        console.error('Fallback copy failed:', fallbackErr);
+                        alert(`Copy failed. Party code: ${partyCode}`);
+                    }
+                    document.body.removeChild(textArea);
                 });
             }
         });
@@ -178,11 +251,14 @@ function handleVideoAction(action, time, isPlaying) {
 function handleVideoPlay() { handleVideoAction('PLAY'); }
 function handleVideoPause() { handleVideoAction('PAUSE'); }
 function handleVideoSeek() { 
-    handleVideoAction('SEEK', videoElement.currentTime, !videoElement.paused); 
+if (typeof videoElement !== 'undefined' && videoElement) {
+    handleVideoAction('SEEK', videoElement.currentTime, !videoElement.paused);
 }
+} // Added missing closing brace
 
 function sendChatMessage() {
     const chatInput = document.getElementById('peersync-chat-input');
+    if (!chatInput) return;
     const message = chatInput.value.trim();
     if (message) {
         sendDataToPeers({ type: 'CHAT_MESSAGE', message: message, senderName: myNickname });
@@ -192,8 +268,19 @@ function sendChatMessage() {
 }
 function displayChatMessage(sender, message) {
     const chatMessages = document.getElementById('peersync-chat-messages');
+    if (!chatMessages) return;
     const messageElement = document.createElement('div');
-    messageElement.innerHTML = `<strong>${sender}:</strong> ${message}`;
+    
+    // Create separate elements to prevent XSS
+    const senderElement = document.createElement('strong');
+    senderElement.textContent = sender + ':';
+    
+    const messageText = document.createElement('span');
+    messageText.textContent = ' ' + message;
+    
+    messageElement.appendChild(senderElement);
+    messageElement.appendChild(messageText);
+    
     chatMessages.appendChild(messageElement);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -201,11 +288,10 @@ function displayChatMessage(sender, message) {
 // NEW: Format time in MM:SS or HH:MM:SS format
 function formatTime(seconds) {
     if (isNaN(seconds) || seconds < 0) return "00:00";
-    
+    seconds = Math.floor(seconds);
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    
+    const secs = seconds % 60;
     if (hours > 0) {
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     } else {
@@ -222,7 +308,9 @@ function updateVideoTimer() {
     const timerElement = document.getElementById('peersync-video-timer');
     
     if (timerElement) {
-        timerElement.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+        // Handle NaN duration gracefully
+        const formattedDuration = isNaN(duration) ? "00:00" : formatTime(duration);
+        timerElement.textContent = `${formatTime(currentTime)} / ${formattedDuration}`;
     }
 }
 
@@ -236,6 +324,9 @@ function updateVideoTitle() {
     
     if (titleElement && videoTitleDisplay) {
         videoTitleDisplay.textContent = titleElement.textContent.trim();
+    } else if (videoTitleDisplay) {
+        // Fallback if title element not found
+        videoTitleDisplay.textContent = "Video title not found";
     }
 }
 
@@ -639,7 +730,13 @@ function injectPageScripts() {
             // Wait a bit for PeerJS to initialize
             return new Promise(resolve => setTimeout(resolve, 100));
         })
-        .then(() => injectScript('peer-logic.js'))
+        .then(() => {
+            console.log('[Controller] About to load peer-logic.js');
+            return injectScript('peer-logic.js');
+        })
+        .then(() => {
+            console.log('[Controller] peer-logic.js loaded successfully');
+        })
         .catch(error => {
             console.error('[Controller] Script injection failed:', error);
             setTimeout(() => {
@@ -688,10 +785,21 @@ function resetPartyState() {
     hostPeerId = '';
     myPeerId = '';
     partyUsers.clear();
-    document.getElementById('peersync-session-id-display').innerText = '';
-    document.getElementById('peersync-session-id-display').removeAttribute('data-fullcode');
-    document.getElementById('peersync-copy-btn').style.display = 'none';
-    document.getElementById('peersync-join-input').value = '';
+    
+    // Add null checks for DOM elements
+    const sessionDisplay = document.getElementById('peersync-session-id-display');
+    const copyBtn = document.getElementById('peersync-copy-btn');
+    const joinInput = document.getElementById('peersync-join-input');
+    const testBtn = document.getElementById('peersync-test-connection-btn');
+    
+    if (sessionDisplay) {
+        sessionDisplay.innerText = '';
+        sessionDisplay.removeAttribute('data-fullcode');
+    }
+    if (copyBtn) copyBtn.style.display = 'none';
+    if (joinInput) joinInput.value = '';
+    if (testBtn) testBtn.style.display = 'none';
+    
     updateUserListUI();
     
     // NEW: Clear the timer interval

@@ -17,13 +17,23 @@
 
 /* Collapsed State */
 #peersync-sidebar.collapsed {
-    right: -330px; /* Hide most of the sidebar */
+    right: -290px; /* Hide most of the sidebar but keep some visible for the button */
 }
 
 #peersync-sidebar.collapsed #peersync-collapse-btn {
-    transform: scaleX(-1);
+    /* Keep button visible and styled */
+    background-color: #3d3d3d !important;
+    border: 1px solid #5a5a5a !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    color: #ffffff !important;
+    cursor: pointer !important;
 }
 
+#peersync-sidebar.collapsed #peersync-collapse-btn:hover {
+    background-color: #5a5a5a !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+}
 
 /* YouTube Dark Theme */
 .peersync-theme-dark {
@@ -58,6 +68,33 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: relative; /* For button positioning when collapsed */
+}
+
+.peersync-header h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+#peersync-collapse-btn {
+    background-color: #3d3d3d !important;
+    border: 1px solid #5a5a5a !important;
+    padding: 5px 8px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    font-size: 14px !important;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 10000;
+}
+
+#peersync-collapse-btn:hover {
+    background-color: #5a5a5a !important;
+}
+
+/* Ensure button is always visible and clickable */
+#peersync-sidebar.collapsed #peersync-collapse-btn:hover {
+    background-color: #5a5a5a !important;
 }
 
 #peersync-chat-container {

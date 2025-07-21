@@ -40,15 +40,16 @@ const peerConfig = {
             'credential': 'peerjsp'
         },
         
-        // Add more robust TURN servers with proper credentials
-        {
-            'urls': [
-                'turn:global.turn.twilio.com:3478?transport=udp',
-                'turn:global.turn.twilio.com:3478?transport=tcp'
-            ],
-            'username': 'YOUR_ACCOUNT_SID', // Replace with actual credentials
-            'credential': 'YOUR_AUTH_TOKEN'  // Replace with actual credentials
-        }
+        // Remove invalid TURN servers with placeholder credentials
+        // Add more robust TURN servers only if you have valid credentials
+        // {
+        //     'urls': [
+        //         'turn:global.turn.twilio.com:3478?transport=udp',
+        //         'turn:global.turn.twilio.com:3478?transport=tcp'
+        //     ],
+        //     'username': 'YOUR_ACCOUNT_SID', // Replace with actual credentials
+        //     'credential': 'YOUR_AUTH_TOKEN'  // Replace with actual credentials
+        // }
     ],
     // Add these critical settings for better NAT traversal
     'iceCandidatePoolSize': 15,
@@ -60,11 +61,21 @@ window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data.type || !event.data.type.startsWith('PEERSYNC_')) return;
     const { type, payload } = event.data;
     switch (type) {
-        case 'PEERSYNC_CREATE_PARTY': createParty(); break;
-        case 'PEERSYNC_JOIN_PARTY': joinParty(payload.peerId); break;
+        case 'PEERSYNC_CREATE_PARTY': 
+            createParty(); 
+            break;
+        case 'PEERSYNC_JOIN_PARTY': 
+            joinParty(payload.peerId); 
+            break;
         case 'PEERSYNC_SEND_DATA':
             for (const conn of connections.values()) {
-                if (conn.open) conn.send(payload);
+                if (conn.open) {
+                    try {
+                        conn.send(payload);
+                    } catch (err) {
+                        console.error('[PeerLogic] Failed to send data:', err);
+                    }
+                }
             }
             break;
         case 'PEERSYNC_PEERJS_STATUS_REQUEST':
@@ -72,6 +83,9 @@ window.addEventListener('message', (event) => {
                 type: 'PEERSYNC_PEERJS_STATUS_RESPONSE', 
                 payload: { loaded: typeof Peer === 'function' } 
             }, '*');
+            break;
+        default:
+            console.warn('[PeerLogic] Unknown message type:', type);
             break;
     }
 });
@@ -90,7 +104,7 @@ function createParty() {
     }
     
     // Generate random ID to avoid collisions
-    const randomId = 'ps-' + Math.random().toString(36).substr(2, 9);
+    const randomId = 'ps-' + Math.random().toString(36).substring(2, 11);
     
     try { 
         console.log('[PeerLogic] Creating new Peer with ID and config');
@@ -160,7 +174,7 @@ function joinParty(hostPeerId) {
     }
     
     // Generate random ID to avoid collisions
-    const randomId = 'ps-' + Math.random().toString(36).substr(2, 9);
+    const randomId = 'ps-' + Math.random().toString(36).substring(2, 11);
     
     try {
         console.log('[PeerLogic] Creating new Peer with ID and config');
