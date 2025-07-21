@@ -197,6 +197,15 @@ peer-sync/
 - **Cause**: Firewall/NAT blocking P2P connection
 - **Solution**: Use same WiFi network, check firewall settings
 
+#### "University/Corporate Network Issues"
+- **Cause**: Institutional firewalls block WebRTC/P2P traffic
+- **Solutions**: 
+  - Switch to mobile hotspot temporarily
+  - Try from home/personal WiFi
+  - Contact IT department about WebRTC access
+  - Use VPN if permitted by institution
+  - Test with friends on different networks
+
 #### "The host ID doesn't exist"
 - **Cause**: Invalid party code or host offline
 - **Solution**: Verify party code, ensure host is still connected

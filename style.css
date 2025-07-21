@@ -40,6 +40,35 @@
     background-color: #212121;
     color: #ffffff;
     border: 1px solid #3d3d3d;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Connection status indicator */
+.connection-status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse 2s infinite;
+}
+
+.connection-status.connected {
+    background-color: #4CAF50;
+}
+
+.connection-status.connecting {
+    background-color: #FF9800;
+}
+
+.connection-status.disconnected {
+    background-color: #F44336;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
 }
 
 .peersync-theme-dark button {
@@ -49,18 +78,79 @@
     padding: 8px 12px;
     border-radius: 8px;
     cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
 }
 
 .peersync-theme-dark button:hover {
     background-color: #5a5a5a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.peersync-theme-dark button:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.peersync-theme-dark button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Loading spinner for buttons */
+.button-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid transparent;
+    border-top: 2px solid #ffffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Primary button style */
+.btn-primary {
+    background-color: #ff4444 !important;
+    border-color: #ff6666 !important;
+}
+
+.btn-primary:hover {
+    background-color: #ff6666 !important;
 }
 
 .peersync-theme-dark input {
     background-color: #121212;
     color: #ffffff;
     border: 1px solid #3d3d3d;
-    padding: 8px;
+    padding: 8px 12px;
     border-radius: 8px;
+    transition: all 0.2s ease;
+    font-size: 14px;
+}
+
+.peersync-theme-dark input:focus {
+    outline: none;
+    border-color: #ff4444;
+    box-shadow: 0 0 0 2px rgba(255, 68, 68, 0.2);
+    background-color: #1a1a1a;
+}
+
+.peersync-theme-dark input::placeholder {
+    color: #888888;
+    font-style: italic;
 }
 
 /* Layout */
@@ -111,7 +201,53 @@
     border-radius: 8px;
     padding: 10px;
     overflow-y: auto;
-    max-height: calc(100% - 50px); /* Prevent overflow */
+    max-height: calc(100% - 50px);
+    border: 1px solid #2a2a2a;
+    scrollbar-width: thin;
+    scrollbar-color: #5a5a5a #121212;
+}
+
+/* Custom scrollbar for webkit browsers */
+#peersync-chat-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+#peersync-chat-messages::-webkit-scrollbar-track {
+    background: #121212;
+    border-radius: 3px;
+}
+
+#peersync-chat-messages::-webkit-scrollbar-thumb {
+    background: #5a5a5a;
+    border-radius: 3px;
+}
+
+#peersync-chat-messages::-webkit-scrollbar-thumb:hover {
+    background: #6a6a6a;
+}
+
+/* Chat message styling */
+.chat-message {
+    margin: 6px 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.02);
+    border-left: 3px solid transparent;
+    animation: fadeIn 0.3s ease;
+}
+
+.chat-message.system {
+    border-left-color: #ff4444;
+    background-color: rgba(255, 68, 68, 0.1);
+}
+
+.chat-message.user {
+    border-left-color: #4CAF50;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 #peersync-chat-input-container {
@@ -139,11 +275,53 @@
 
 #peersync-session-id-display {
     flex-grow: 1;
-    overflow-wrap: break-word; /* Prevents long IDs from breaking the layout */
-    font-family: monospace;
+    overflow-wrap: break-word;
+    font-family: 'Courier New', monospace;
     background-color: #121212;
-    padding: 5px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid #3d3d3d;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    position: relative;
+}
+
+/* Copy success animation */
+.copy-success {
+    animation: copyFlash 0.6s ease;
+}
+
+@keyframes copyFlash {
+    0% { background-color: #121212; }
+    50% { background-color: #4CAF50; }
+    100% { background-color: #121212; }
+}
+
+/* Tooltip for copy button */
+.copy-tooltip {
+    position: relative;
+}
+
+.copy-tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #333;
+    color: white;
+    padding: 4px 8px;
     border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    margin-bottom: 5px;
+}
+
+.copy-tooltip:hover::after {
+    opacity: 1;
 }
 
 /* Styling for host control buttons */
@@ -174,17 +352,72 @@
 #peersync-user-list li {
     display: flex;
     align-items: center;
-    padding: 4px 0;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+#peersync-user-list li:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: #3d3d3d;
+}
+
+#peersync-user-list li.host {
+    border-left: 3px solid #ff4444;
+    background-color: rgba(255, 68, 68, 0.05);
+}
+
+#peersync-user-list li.host::before {
+    content: "👑";
+    margin-right: 6px;
+}
+
+/* User avatar placeholder */
+.user-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(45deg, #ff4444, #ff6666);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Online status indicator */
+.user-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #4CAF50;
+    margin-left: auto;
+    animation: pulse 2s infinite;
 }
 
 /* Video title styling */
 #peersync-video-title-container {
-    margin: 10px 0;
+    margin: 12px 0;
     text-align: center;
-    background-color: #121212;
-    border-radius: 8px;
-    padding: 8px;
+    background: linear-gradient(135deg, #1a1a1a, #121212);
+    border-radius: 10px;
+    padding: 12px;
     overflow: hidden;
+    border: 1px solid #2a2a2a;
+    position: relative;
+}
+
+#peersync-video-title-container::before {
+    content: "📺";
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    font-size: 14px;
+    opacity: 0.7;
 }
 
 #peersync-video-title {
@@ -193,18 +426,97 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
+    font-weight: 500;
+    margin-left: 24px;
+    line-height: 1.4;
 }
 
 /* Video timer styling */
 #peersync-video-timer-container {
-    margin: 10px 0;
+    margin: 12px 0;
     text-align: center;
-    background-color: #121212;
-    border-radius: 8px;
-    padding: 8px;
+    background: linear-gradient(135deg, #1a1a1a, #121212);
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #2a2a2a;
+    position: relative;
+}
+
+#peersync-video-timer-container::before {
+    content: "⏱️";
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    font-size: 14px;
+    opacity: 0.7;
 }
 
 #peersync-video-timer {
-    font-family: monospace;
-    font-size: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+    font-weight: bold;
+    color: #ff4444;
+    text-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
+    margin-left: 24px;
+}
+
+/* Responsive design for smaller screens */
+@media (max-height: 600px) {
+    #peersync-sidebar {
+        top: 40px;
+        height: calc(100vh - 50px);
+        gap: 15px;
+        padding: 12px;
+    }
+    
+    #peersync-chat-container {
+        min-height: 150px;
+    }
+    
+    .peersync-header h3 {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 1400px) {
+    #peersync-sidebar {
+        width: 320px;
+        right: 5px;
+    }
+}
+
+/* Smooth transitions for all interactive elements */
+* {
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Focus states for accessibility */
+button:focus,
+input:focus {
+    outline: 2px solid #ff4444;
+    outline-offset: 2px;
+}
+
+/* Loading state overlay */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(33, 33, 33, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    z-index: 1000;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #3d3d3d;
+    border-top: 4px solid #ff4444;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
 }

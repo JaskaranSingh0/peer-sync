@@ -5,7 +5,8 @@
   "description": "A P2P extension for watching YouTube together.",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "notifications"
   ],
   "host_permissions": [
     "*://*.youtube.com/*"

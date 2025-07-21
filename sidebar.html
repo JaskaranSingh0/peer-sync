@@ -1,20 +1,20 @@
 <div id="peersync-sidebar" class="peersync-theme-dark">
     <div class="peersync-header">
-        <h3>PeerSync</h3>
+        <h3><span class="connection-status disconnected"></span>PeerSync</h3>
         <button id="peersync-collapse-btn">➡️</button>
     </div>
 
     <div id="peersync-session-controls">
-        <button id="peersync-create-btn">Create Party</button>
+        <button id="peersync-create-btn" class="btn-primary">🎉 Create Party</button>
         <div id="peersync-join-section">
-            <input type="text" id="peersync-join-input" placeholder="Enter code...">
-            <button id="peersync-join-btn">Join</button>
+            <input type="text" id="peersync-join-input" placeholder="Enter party code...">
+            <button id="peersync-join-btn">🚀 Join</button>
         </div>
-        <!-- NEW: Added a container for the code and copy button -->
+        <!-- Enhanced session display container -->
         <div id="peersync-session-display-container">
-            <p id="peersync-session-id-display"></p>
-            <button id="peersync-copy-btn" style="display: none;">Copy</button>
-            <button id="peersync-test-connection-btn" style="display: none;">Test Connection</button>
+            <div id="peersync-session-id-display"></div>
+            <button id="peersync-copy-btn" class="copy-tooltip" data-tooltip="Copy to clipboard" style="display: none;">📋</button>
+            <button id="peersync-test-connection-btn" style="display: none;">🔍 Test</button>
         </div>
     </div>
 
@@ -29,19 +29,20 @@
     </div>
 
     <div id="peersync-user-list-container">
-        <h4>Connected Users</h4>
+        <h4>👥 Connected Users</h4>
         <ul id="peersync-user-list">
             <!-- User items will be added here by JS -->
         </ul>
     </div>
 
     <div id="peersync-chat-container">
+        <h4>💬 Party Chat</h4>
         <div id="peersync-chat-messages">
             <!-- Chat messages will appear here -->
         </div>
         <div id="peersync-chat-input-container">
-            <input type="text" id="peersync-chat-input" placeholder="Say something...">
-            <button id="peersync-chat-send-btn">Send</button>
+            <input type="text" id="peersync-chat-input" placeholder="Type your message...">
+            <button id="peersync-chat-send-btn">📤</button>
         </div>
     </div>
 </div>

@@ -257,32 +257,74 @@ if (typeof videoElement !== 'undefined' && videoElement) {
 } // Added missing closing brace
 
 function sendChatMessage() {
-    const chatInput = document.getElementById('peersync-chat-input');
-    if (!chatInput) return;
-    const message = chatInput.value.trim();
-    if (message) {
-        sendDataToPeers({ type: 'CHAT_MESSAGE', message: message, senderName: myNickname });
-        displayChatMessage('You', message);
-        chatInput.value = '';
+    try {
+        const chatInput = document.getElementById('peersync-chat-input');
+        if (!chatInput) {
+            console.error('[Controller] Chat input element not found');
+            return;
+        }
+        
+        const message = chatInput.value.trim();
+        if (message) {
+            if (message.length > 500) {
+                displayChatMessage('System', '❌ Message too long (max 500 characters)');
+                return;
+            }
+            
+            sendDataToPeers({ type: 'CHAT_MESSAGE', message: message, senderName: myNickname });
+            displayChatMessage('You', message);
+            chatInput.value = '';
+        }
+    } catch (error) {
+        console.error('[Controller] Error sending chat message:', error);
+        displayChatMessage('System', '❌ Failed to send message');
     }
 }
 function displayChatMessage(sender, message) {
-    const chatMessages = document.getElementById('peersync-chat-messages');
-    if (!chatMessages) return;
-    const messageElement = document.createElement('div');
-    
-    // Create separate elements to prevent XSS
-    const senderElement = document.createElement('strong');
-    senderElement.textContent = sender + ':';
-    
-    const messageText = document.createElement('span');
-    messageText.textContent = ' ' + message;
-    
-    messageElement.appendChild(senderElement);
-    messageElement.appendChild(messageText);
-    
-    chatMessages.appendChild(messageElement);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    try {
+        const chatMessages = document.getElementById('peersync-chat-messages');
+        if (!chatMessages) {
+            console.error('[Controller] Chat messages container not found');
+            return;
+        }
+        
+        // Sanitize input
+        if (!sender || !message) {
+            console.warn('[Controller] Invalid chat message data');
+            return;
+        }
+        
+        const messageElement = document.createElement('div');
+        messageElement.className = 'chat-message';
+        
+        // Add system message styling
+        if (sender === 'System') {
+            messageElement.classList.add('system');
+        } else {
+            messageElement.classList.add('user');
+        }
+        
+        // Create separate elements to prevent XSS
+        const senderElement = document.createElement('strong');
+        senderElement.textContent = String(sender).substring(0, 50) + ':'; // Limit sender name length
+        
+        const messageText = document.createElement('span');
+        messageText.textContent = ' ' + String(message).substring(0, 500); // Limit message length
+        
+        messageElement.appendChild(senderElement);
+        messageElement.appendChild(messageText);
+        
+        chatMessages.appendChild(messageElement);
+        
+        // Limit chat history to 100 messages
+        while (chatMessages.children.length > 100) {
+            chatMessages.removeChild(chatMessages.firstChild);
+        }
+        
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    } catch (error) {
+        console.error('[Controller] Error displaying chat message:', error);
+    }
 }
 
 // NEW: Format time in MM:SS or HH:MM:SS format
@@ -301,32 +343,62 @@ function formatTime(seconds) {
 
 // NEW: Update video timer display
 function updateVideoTimer() {
-    if (!videoElement) return;
-    
-    const currentTime = videoElement.currentTime;
-    const duration = videoElement.duration;
-    const timerElement = document.getElementById('peersync-video-timer');
-    
-    if (timerElement) {
-        // Handle NaN duration gracefully
-        const formattedDuration = isNaN(duration) ? "00:00" : formatTime(duration);
-        timerElement.textContent = `${formatTime(currentTime)} / ${formattedDuration}`;
+    try {
+        if (!videoElement) return;
+        
+        const currentTime = videoElement.currentTime || 0;
+        const duration = videoElement.duration || 0;
+        const timerElement = document.getElementById('peersync-video-timer');
+        
+        if (timerElement) {
+            // Handle NaN duration gracefully
+            const formattedDuration = isNaN(duration) ? "00:00" : formatTime(duration);
+            const formattedCurrent = isNaN(currentTime) ? "00:00" : formatTime(currentTime);
+            timerElement.textContent = `${formattedCurrent} / ${formattedDuration}`;
+        }
+    } catch (error) {
+        console.error('[Controller] Error updating video timer:', error);
     }
 }
 
 // NEW: Update video title display
 function updateVideoTitle() {
-    if (!videoElement) return;
-    
-    // Find the YouTube video title
-    const titleElement = document.querySelector('h1.title.style-scope.ytd-video-primary-info-renderer');
-    const videoTitleDisplay = document.getElementById('peersync-video-title');
-    
-    if (titleElement && videoTitleDisplay) {
-        videoTitleDisplay.textContent = titleElement.textContent.trim();
-    } else if (videoTitleDisplay) {
-        // Fallback if title element not found
-        videoTitleDisplay.textContent = "Video title not found";
+    try {
+        const videoTitleDisplay = document.getElementById('peersync-video-title');
+        if (!videoTitleDisplay) return;
+        
+        // Find the YouTube video title with multiple selectors
+        const titleSelectors = [
+            'h1.title.style-scope.ytd-video-primary-info-renderer',
+            'h1.ytd-video-primary-info-renderer',
+            'h1[class*="title"]',
+            'meta[name="title"]'
+        ];
+        
+        let titleElement = null;
+        for (const selector of titleSelectors) {
+            titleElement = document.querySelector(selector);
+            if (titleElement) break;
+        }
+        
+        if (titleElement) {
+            const title = titleElement.content || titleElement.textContent || titleElement.innerText;
+            videoTitleDisplay.textContent = title.trim().substring(0, 100); // Limit length
+        } else {
+            // Fallback: try to get title from document.title
+            const pageTitle = document.title;
+            if (pageTitle && pageTitle !== 'YouTube') {
+                videoTitleDisplay.textContent = pageTitle.replace(' - YouTube', '').substring(0, 100);
+            } else {
+                videoTitleDisplay.textContent = 'Loading video title...';
+            }
+        }
+    } catch (error) {
+        console.error('[Controller] Error updating video title:', error);
+        const videoTitleDisplay = document.getElementById('peersync-video-title');
+        if (videoTitleDisplay) {
+            videoTitleDisplay.textContent = 'Error loading title';
+        }
     }
 }
 
@@ -689,7 +761,19 @@ window.addEventListener('message', (event) => {
             break;
         
         case 'PEERSYNC_ERROR':
-            alert(`Error: ${payload.message}`);
+            // Enhanced error handling for university/corporate networks
+            let errorMessage = payload.message;
+            if (payload.message.includes('network-error') || 
+                payload.message.includes('ice-connection-failed') ||
+                payload.message.includes('connection-failed') ||
+                payload.message.includes('peer-unavailable')) {
+                errorMessage += '\n\n🏫 University/Corporate Network Issue:\n' +
+                    '• Try mobile hotspot or home WiFi\n' +
+                    '• Contact IT about WebRTC/P2P access\n' +
+                    '• VPN might help if permitted\n' +
+                    '• Firewall may be blocking connections';
+            }
+            alert(`Error: ${errorMessage}`);
             if (!isHost) resetPartyState();
             break;
         
@@ -748,35 +832,53 @@ function injectPageScripts() {
         });
 }
 function findVideoAndAddListeners() {
-    videoElement = document.querySelector('.html5-main-video');
-    if (videoElement) {
-        videoElement.addEventListener('play', handleVideoPlay);
-        videoElement.addEventListener('pause', handleVideoPause);
+    try {
+        // Remove existing listeners if video element exists
+        if (videoElement) {
+            videoElement.removeEventListener('play', handleVideoPlay);
+            videoElement.removeEventListener('pause', handleVideoPause);
+            videoElement.removeEventListener('seeked', handleVideoSeek);
+        }
         
-        // Replace the simple seeked listener with this debounced version
-        let seekTimer = null;
-        videoElement.addEventListener('seeked', () => {
-            // Clear any pending seek operations
-            if (seekTimer) clearTimeout(seekTimer);
+        videoElement = document.querySelector('.html5-main-video');
+        if (videoElement) {
+            console.log('[Controller] Video element found, adding listeners');
             
-            // Delay the seek action to ensure the video has stabilized
-            seekTimer = setTimeout(() => {
-                handleVideoSeek();
-            }, 50);
-        });
-        
-        // Add listener for YouTube navigation (to update title)
-        document.addEventListener('yt-navigate-finish', () => {
-            updateVideoTitle();
-        });
-        
-        // NEW: Apply control restrictions based on current permissions
-        applyVideoControlRestrictions();
-        
-        // Start the timer updates (includes title updates)
-        startTimerUpdates();
-    } else {
-        setTimeout(findVideoAndAddListeners, 500);
+            videoElement.addEventListener('play', handleVideoPlay);
+            videoElement.addEventListener('pause', handleVideoPause);
+            
+            // Replace the simple seeked listener with this debounced version
+            let seekTimer = null;
+            videoElement.addEventListener('seeked', () => {
+                // Clear any pending seek operations
+                if (seekTimer) clearTimeout(seekTimer);
+                
+                // Delay the seek action to ensure the video has stabilized
+                seekTimer = setTimeout(() => {
+                    handleVideoSeek();
+                }, 50);
+            });
+            
+            // Add error event listener
+            videoElement.addEventListener('error', (event) => {
+                console.error('[Controller] Video error:', event);
+                displayChatMessage('System', '❌ Video playback error occurred');
+            });
+            
+            // Add loadstart event for better tracking
+            videoElement.addEventListener('loadstart', () => {
+                console.log('[Controller] Video loading started');
+                updateVideoTitle();
+            });
+            
+            startTimerUpdates();
+        } else {
+            console.warn('[Controller] Video element not found, retrying in 2 seconds...');
+            setTimeout(findVideoAndAddListeners, 2000);
+        }
+    } catch (error) {
+        console.error('[Controller] Error in findVideoAndAddListeners:', error);
+        setTimeout(findVideoAndAddListeners, 5000); // Retry after 5 seconds
     }
 }
 function resetPartyState() {
