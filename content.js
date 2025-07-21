@@ -40,6 +40,10 @@ async function initialize() {
             myNickname = result.nickname || `User${Math.floor(Math.random() * 1000)}`;
         });
 
+        // Add network change detection
+        window.addEventListener('online', handleNetworkChange);
+        window.addEventListener('offline', handleNetworkChange);
+
     } catch (error) {
         console.error("[Controller] Fatal error during initialization:", error);
     }
@@ -484,7 +488,25 @@ window.addEventListener('message', (event) => {
                 case 'CONNECTION_TEST_RESPONSE':
                     const latency = Date.now() - payload.originalTimestamp;
                     console.log(`[Controller] Connection test response received, latency: ${latency}ms`);
-                    displayChatMessage('System', `✅ Connection test response received! Latency: ${latency}ms`);
+                    
+                    // Add quality assessment
+                    let quality = "Excellent";
+                    if (latency > 200) quality = "Good";
+                    if (latency > 500) quality = "Fair";
+                    if (latency > 1000) quality = "Poor";
+                    
+                    displayChatMessage('System', `✅ Connection test response received! Latency: ${latency}ms (${quality})`);
+                    
+                    // Test packet loss by sending 5 more test packets
+                    for (let i = 0; i < 5; i++) {
+                        setTimeout(() => {
+                            sendDataToPeers({ 
+                                type: 'PING', 
+                                pingId: i,
+                                timestamp: Date.now() 
+                            });
+                        }, i * 200);
+                    }
                     break;
 
                 case 'USER_LIST_UPDATE':
@@ -683,6 +705,10 @@ function resetPartyState() {
     
     // NEW: Remove the YouTube navigation listener
     document.removeEventListener('yt-navigate-finish', updateVideoTitle);
+    
+    // Remove network event listeners
+    window.removeEventListener('online', handleNetworkChange);
+    window.removeEventListener('offline', handleNetworkChange);
 }
 
 // Add this new function to manage video control permissions
@@ -737,6 +763,18 @@ function handleKeyboardShortcuts(event) {
         }
     }
     return true;
+}
+
+// --- Network Change Handling ---
+function handleNetworkChange() {
+    const isOnline = navigator.onLine;
+    console.log(`[Controller] Network status changed: ${isOnline ? 'online' : 'offline'}`);
+    
+    if (isOnline && hostPeerId && !isHost) {
+        // Try to reconnect if we were previously in a party
+        displayChatMessage('System', 'Network changed. Attempting to reconnect...');
+        window.postMessage({ type: 'PEERSYNC_JOIN_PARTY', payload: { peerId: hostPeerId } }, '*');
+    }
 }
 
 // --- Run the script ---

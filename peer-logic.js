@@ -38,11 +38,22 @@ const peerConfig = {
             'urls': 'turn:eu-0.turn.peerjs.com:3478',
             'username': 'peerjs',
             'credential': 'peerjsp'
+        },
+        
+        // Add more robust TURN servers with proper credentials
+        {
+            'urls': [
+                'turn:global.turn.twilio.com:3478?transport=udp',
+                'turn:global.turn.twilio.com:3478?transport=tcp'
+            ],
+            'username': 'YOUR_ACCOUNT_SID', // Replace with actual credentials
+            'credential': 'YOUR_AUTH_TOKEN'  // Replace with actual credentials
         }
     ],
-    // Enhanced ICE configuration for cross-device connections
-    'iceCandidatePoolSize': 10,
-    'iceTransportPolicy': 'all'
+    // Add these critical settings for better NAT traversal
+    'iceCandidatePoolSize': 15,
+    'iceTransportPolicy': 'all',
+    'sdpSemantics': 'unified-plan'
 };
 
 window.addEventListener('message', (event) => {
@@ -212,6 +223,11 @@ function joinParty(hostPeerId) {
         }
     });
 
+    peer.on('disconnected', () => {
+        console.log('[PeerLogic] Disconnected from signaling server, attempting to reconnect');
+        peer.reconnect(); // Add reconnection attempt
+    });
+    
     peer.on('error', (err) => {
         console.error('[PeerLogic] Joiner PeerJS Error:', err);
         let errorMessage = "Could not connect to peer. ";
@@ -225,6 +241,14 @@ function joinParty(hostPeerId) {
             errorMessage += "You're disconnected from the signaling server.";
         } else {
             errorMessage += `Error: ${err.type || err.message}. Is the code correct?`;
+        }
+        
+        // Add reconnection logic for certain error types
+        if (err.type === 'network' || err.type === 'peer-unavailable') {
+            console.log('[PeerLogic] Attempting reconnection in 5 seconds...');
+            setTimeout(() => {
+                if (!peer.destroyed) peer.reconnect();
+            }, 5000);
         }
         
         window.postMessage({ 
@@ -244,15 +268,14 @@ function setupConnectionEventListeners(conn) {
             console.log(`[PeerLogic] ICE connection state with ${conn.peer}: ${iceState}`);
             
             if (iceState === 'failed') {
-                console.error(`[PeerLogic] ICE connection failed with ${conn.peer} - likely NAT/firewall issue`);
-                window.postMessage({ 
-                    type: 'PEERSYNC_ERROR', 
-                    payload: { message: `Connection failed with ${conn.peer} - network/firewall blocking connection` } 
-                }, '*');
-            } else if (iceState === 'disconnected') {
-                console.warn(`[PeerLogic] ICE connection disconnected with ${conn.peer}`);
-            } else if (iceState === 'connected' || iceState === 'completed') {
-                console.log(`[PeerLogic] ICE connection established with ${conn.peer}`);
+                console.log('[PeerLogic] ICE connection failed, attempting restart');
+                // Force an ICE restart
+                if (conn.peerConnection.restartIce) {
+                    conn.peerConnection.restartIce();
+                } else if (conn.provider && conn.provider._negotiate) {
+                    // Fallback for older browsers
+                    conn.provider._negotiate(conn, {iceRestart: true});
+                }
             }
         };
         

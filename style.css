@@ -64,6 +64,8 @@
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    min-height: 200px; /* Ensure minimum height */
+    margin-bottom: 10px; /* Space at bottom */
 }
 
 #peersync-chat-messages {
@@ -72,12 +74,18 @@
     border-radius: 8px;
     padding: 10px;
     overflow-y: auto;
+    max-height: calc(100% - 50px); /* Prevent overflow */
 }
 
 #peersync-chat-input-container {
     display: flex;
     gap: 10px;
     margin-top: 10px;
+    position: relative; /* Ensure proper positioning */
+    bottom: 0;
+    width: 100%;
+    z-index: 10; /* Keep on top */
+    background-color: #212121; /* Match sidebar background */
 }
 
 #peersync-chat-input {
