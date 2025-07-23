@@ -18,6 +18,43 @@ let hostCurrentTime = 0;
 let syncThreshold = 0.5; // 500ms threshold for sync
 let lastPermissionMessageTime = 0; // NEW: for controlling permission message frequency
 
+// --- User Color Management ---
+const userColors = new Map(); // Maps user IDs to their assigned colors
+const availableColors = [
+    '#FF6B6B', // Bright Red
+    '#4ECDC4', // Teal/Cyan  
+    '#FFD93D', // Bright Yellow
+    '#6BCF7F', // Green
+    '#FF8C42', // Orange
+    '#A8E6CF', // Light Green
+    '#FFB6C1', // Light Pink
+    '#87CEEB', // Sky Blue
+    '#DDA0DD', // Plum
+    '#F0E68C', // Khaki
+    '#FF69B4', // Hot Pink
+    '#32CD32', // Lime Green
+    '#FF4500', // Red Orange
+    '#9370DB', // Medium Purple
+    '#00CED1'  // Dark Turquoise
+];
+let colorIndex = 0;
+
+// --- Color Management Functions ---
+function assignUserColor(userId) {
+    if (!userColors.has(userId)) {
+        const color = availableColors[colorIndex % availableColors.length];
+        userColors.set(userId, color);
+        colorIndex++;
+        console.log(`[Controller] Assigned color ${color} to user ${userId}`);
+    }
+    return userColors.get(userId);
+}
+
+function getUserColor(userId) {
+    const color = userColors.get(userId) || '#4CAF50'; // Fallback to default green
+    return color;
+}
+
 // --- Main Function ---
 async function initialize() {
     try {
@@ -193,11 +230,14 @@ function updateUserListUI() {
 
     for (const [peerId, userData] of partyUsers.entries()) {
         const userElement = document.createElement('li');
-        userElement.textContent = userData.nickname;
+        
+        // Apply user color to the nickname
+        const userColor = getUserColor(peerId);
+        userElement.innerHTML = `<span style="color: ${userColor}; font-weight: 600;">${userData.nickname}</span>`;
 
-        if (peerId === myPeerId) userElement.textContent += ' (You)';
-        if (peerId === hostPeerId) userElement.textContent += ' ⭐';
-        if (userData.canControl && peerId !== hostPeerId) userElement.textContent += ' 🎮';
+        if (peerId === myPeerId) userElement.innerHTML += ' (You)';
+        if (peerId === hostPeerId) userElement.innerHTML += ' ⭐';
+        if (userData.canControl && peerId !== hostPeerId) userElement.innerHTML += ' 🎮';
 
         if (isHost && peerId !== myPeerId) {
             const controlsDiv = document.createElement('div');
@@ -230,11 +270,21 @@ function updateUserListUI() {
 function broadcastUserList() {
     if (!isHost) return;
     const userListForBroadcast = Array.from(partyUsers.entries());
-    sendDataToPeers({ type: 'USER_LIST_UPDATE', list: userListForBroadcast, newHostId: hostPeerId });
+    const colorsForBroadcast = Array.from(userColors.entries());
+    sendDataToPeers({ 
+        type: 'USER_LIST_UPDATE', 
+        list: userListForBroadcast, 
+        colors: colorsForBroadcast,
+        newHostId: hostPeerId 
+    });
 }
 
 function sendDataToPeers(data) {
     window.postMessage({ type: 'PEERSYNC_SEND_DATA', payload: data }, '*');
+}
+
+function sendDataToPeersExcept(data, excludePeerId) {
+    window.postMessage({ type: 'PEERSYNC_SEND_DATA_EXCEPT', payload: data, excludePeerId: excludePeerId }, '*');
 }
 
 // Helper function to display system messages to all participants (host and peers)
@@ -314,8 +364,8 @@ function sendChatMessage() {
                 return;
             }
             
-            sendDataToPeers({ type: 'CHAT_MESSAGE', message: message, senderName: myNickname });
-            displayChatMessage('You', message);
+            sendDataToPeers({ type: 'CHAT_MESSAGE', message: message, senderName: myNickname, senderId: myPeerId });
+            displayChatMessage('You', message, myPeerId);
             chatInput.value = '';
         }
     } catch (error) {
@@ -323,7 +373,7 @@ function sendChatMessage() {
         displayChatMessage('System', '❌ Failed to send message');
     }
 }
-function displayChatMessage(sender, message) {
+function displayChatMessage(sender, message, senderId = null) {
     try {
         const chatMessages = document.getElementById('peersync-chat-messages');
         if (!chatMessages) {
@@ -350,6 +400,31 @@ function displayChatMessage(sender, message) {
         // Create separate elements to prevent XSS
         const senderElement = document.createElement('strong');
         senderElement.textContent = String(sender).substring(0, 50) + ':'; // Limit sender name length
+        
+        // Apply color to user messages (not system messages)
+        if (sender !== 'System') {
+            let userColor;
+            if (sender === 'You') {
+                // Use own peer ID for "You" messages
+                userColor = getUserColor(myPeerId);
+            } else if (senderId) {
+                // Use the provided sender ID to get their assigned color
+                userColor = getUserColor(senderId);
+            } else {
+                // Try to find the user by nickname
+                let foundUserId = null;
+                for (const [userId, userData] of partyUsers.entries()) {
+                    if (userData.nickname === sender) {
+                        foundUserId = userId;
+                        break;
+                    }
+                }
+                userColor = foundUserId ? getUserColor(foundUserId) : getUserColor('default');
+            }
+            
+            senderElement.style.color = userColor;
+            messageElement.style.borderLeftColor = userColor;
+        }
         
         const messageText = document.createElement('span');
         messageText.textContent = ' ' + String(message).substring(0, 500); // Limit message length
@@ -507,6 +582,10 @@ window.addEventListener('message', (event) => {
         case 'PEERSYNC_MY_ID_ASSIGNED':
             myPeerId = payload.peerId;
             if (isHost) hostPeerId = myPeerId;
+            
+            // Assign color to this user
+            assignUserColor(myPeerId);
+            
             partyUsers.set(myPeerId, { nickname: myNickname, canControl: isHost });
             updateUserListUI();
 
@@ -636,7 +715,6 @@ window.addEventListener('message', (event) => {
                 case 'VIDEO_ACTION_REQUEST':
                     // A controlled user is requesting an action. Only the host processes this.
                     if (isHost) {
-                        console.log(`[Controller] Routing request from ${payload.senderId} to ${payload.action}`);
                         
                         // Get the requester's nickname for better messaging
                         const requesterData = partyUsers.get(payload.senderId);
@@ -688,7 +766,18 @@ window.addEventListener('message', (event) => {
                     break;
 
                 case 'CHAT_MESSAGE':
-                    displayChatMessage(payload.senderName, payload.message);
+                    displayChatMessage(payload.senderName, payload.message, payload.senderId);
+                    
+                    // If we're the host, relay this message to all other peers (but not back to sender)
+                    if (isHost) {
+                        // We need to send to all peers except the original sender
+                        sendDataToPeersExcept({
+                            type: 'CHAT_MESSAGE',
+                            message: payload.message,
+                            senderName: payload.senderName,
+                            senderId: payload.senderId
+                        }, payload.senderId);
+                    }
                     break;
 
                 case 'SYSTEM_MESSAGE':
@@ -699,8 +788,19 @@ window.addEventListener('message', (event) => {
                 case 'USER_INFO':
                     if (isHost) {
                         partyUsers.set(payload.senderId, { nickname: payload.nickname, canControl: false });
+                        
+                        // Assign a color to the new user
+                        assignUserColor(payload.senderId);
+                        
+                        // Immediately broadcast the updated user list and colors
                         broadcastUserList();
                         updateUserListUI();
+                        
+                        // Also send a dedicated color sync message to ensure all clients get the color immediately
+                        sendDataToPeers({
+                            type: 'COLOR_SYNC',
+                            colors: Array.from(userColors.entries())
+                        });
                         
                         // Notify everyone that a user has joined with their nickname
                         broadcastSystemMessage(`${payload.nickname} has joined the party!`);
@@ -712,7 +812,6 @@ window.addEventListener('message', (event) => {
                     if (isHost) {
                         const video = document.querySelector('video');
                         if (video) {
-                            console.log(`[Controller] Sync requested by ${payload.senderId}, sending current state`);
                             
                             // Get the requester's nickname for a better message
                             const requesterData = partyUsers.get(payload.senderId);
@@ -739,7 +838,6 @@ window.addEventListener('message', (event) => {
                     break;
 
                 case 'CONNECTION_TEST':
-                    console.log(`[Controller] Connection test received from ${payload.senderId}: ${payload.message}`);
                     const testReceivedMessage = `✅ Connection test received: ${payload.message}`;
                     
                     // Use the helper function to ensure all participants see the message
@@ -787,6 +885,15 @@ window.addEventListener('message', (event) => {
                     partyUsers.clear();
                     for (const [id, data] of newPartyUsers.entries()) {
                         partyUsers.set(id, data);
+                    }
+                    
+                    // Sync color assignments from host
+                    if (payload.colors) {
+                        userColors.clear();
+                        const newUserColors = new Map(payload.colors);
+                        for (const [id, color] of newUserColors.entries()) {
+                            userColors.set(id, color);
+                        }
                     }
                     
                     // Store previous control state to detect changes
@@ -858,6 +965,17 @@ window.addEventListener('message', (event) => {
                                 }
                             }, 3000);
                         }
+                    }
+                    break;
+
+                case 'COLOR_SYNC':
+                    // Handle dedicated color synchronization
+                    if (payload.colors) {
+                        const newUserColors = new Map(payload.colors);
+                        for (const [id, color] of newUserColors.entries()) {
+                            userColors.set(id, color);
+                        }
+                        updateUserListUI(); // Update the UI to reflect new colors
                     }
                     break;
             }

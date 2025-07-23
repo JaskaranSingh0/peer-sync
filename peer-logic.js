@@ -113,6 +113,14 @@ window.addEventListener('message', (event) => {
                 sendDataToAllConnections(payload);
                 break;
                 
+            case 'PEERSYNC_SEND_DATA_EXCEPT':
+                if (!payload || !event.data.excludePeerId) {
+                    console.error('[PeerLogic] No data payload or excludePeerId provided');
+                    return;
+                }
+                sendDataToAllConnectionsExcept(payload, event.data.excludePeerId);
+                break;
+                
             case 'PEERSYNC_PEERJS_STATUS_REQUEST':
                 const status = {
                     loaded: typeof Peer === 'function',
@@ -185,6 +193,63 @@ function sendDataToAllConnections(payload) {
         }
     } catch (error) {
         console.error('[PeerLogic] Error in sendDataToAllConnections:', error);
+        window.postMessage({ 
+            type: 'PEERSYNC_ERROR', 
+            payload: { message: `Data sending error: ${error.message}` } 
+        }, '*');
+    }
+}
+
+// Enhanced data sending function that excludes a specific peer
+function sendDataToAllConnectionsExcept(payload, excludePeerId) {
+    try {
+        if (!payload) {
+            console.error('[PeerLogic] Cannot send empty payload');
+            return;
+        }
+        
+        let successCount = 0;
+        let failureCount = 0;
+        
+        for (const [peerId, conn] of connections) {
+            // Skip the excluded peer
+            if (peerId === excludePeerId) {
+                console.log(`[PeerLogic] Skipping excluded peer: ${peerId}`);
+                continue;
+            }
+            
+            if (conn && conn.open) {
+                try {
+                    conn.send(payload);
+                    successCount++;
+                    console.log(`[PeerLogic] Data sent successfully to ${peerId}`);
+                } catch (err) {
+                    failureCount++;
+                    console.error(`[PeerLogic] Failed to send data to ${peerId}:`, err);
+                    
+                    // Remove failed connections
+                    if (err.message && err.message.includes('not open')) {
+                        console.log(`[PeerLogic] Removing closed connection: ${peerId}`);
+                        connections.delete(peerId);
+                    }
+                }
+            } else {
+                failureCount++;
+                console.warn(`[PeerLogic] Connection to ${peerId} is not open`);
+                connections.delete(peerId);
+            }
+        }
+        
+        console.log(`[PeerLogic] Data broadcast complete (excluding ${excludePeerId}): ${successCount} successful, ${failureCount} failed`);
+        
+        if (successCount === 0 && connections.size > 1) { // > 1 because we're excluding one
+            window.postMessage({ 
+                type: 'PEERSYNC_ERROR', 
+                payload: { message: 'Failed to send data to any connected peers' } 
+            }, '*');
+        }
+    } catch (error) {
+        console.error('[PeerLogic] Error in sendDataToAllConnectionsExcept:', error);
         window.postMessage({ 
             type: 'PEERSYNC_ERROR', 
             payload: { message: `Data sending error: ${error.message}` } 
@@ -610,9 +675,10 @@ function setupConnectionEventListeners(conn) {
                 }
                 
                 // Forward data to content script with sender information
+                // Preserve original senderId if it exists (for relayed messages), otherwise use conn.peer
                 window.postMessage({ 
                     type: 'PEERSYNC_DATA_RECEIVED', 
-                    payload: { ...data, senderId: conn.peer } 
+                    payload: { ...data, senderId: data.senderId || conn.peer } 
                 }, '*');
                 
             } catch (dataError) {
