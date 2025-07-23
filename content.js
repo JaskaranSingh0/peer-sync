@@ -179,7 +179,9 @@ function setupUIEventListeners() {
         testConnectionBtn.addEventListener('click', () => {
             console.log('[Controller] Testing connection...');
             sendDataToPeers({ type: 'CONNECTION_TEST', message: 'Testing connection from ' + (isHost ? 'host' : 'joiner'), timestamp: Date.now() });
-            displayChatMessage('System', 'Connection test sent...');
+            
+            // Use broadcast so everyone sees when a connection test is initiated
+            broadcastSystemMessage('🔍 Connection test sent...');
         });
     }
 }
@@ -206,8 +208,14 @@ function updateUserListUI() {
             
             controlBtn.onclick = () => {
                 const userToUpdate = partyUsers.get(peerId);
+                const wasControlling = userToUpdate.canControl;
                 userToUpdate.canControl = !userToUpdate.canControl;
                 partyUsers.set(peerId, userToUpdate);
+                
+                // Notify everyone about the permission change
+                const action = userToUpdate.canControl ? 'granted' : 'revoked';
+                broadcastSystemMessage(`🎮 Video control ${action} for ${userToUpdate.nickname}`);
+                
                 broadcastUserList();
                 updateUserListUI();
             };
@@ -229,6 +237,20 @@ function sendDataToPeers(data) {
     window.postMessage({ type: 'PEERSYNC_SEND_DATA', payload: data }, '*');
 }
 
+// Helper function to display system messages to all participants (host and peers)
+function broadcastSystemMessage(message) {
+    // Always display locally first
+    displayChatMessage('System', message);
+    
+    // If we're the host, also send to all peers
+    if (isHost) {
+        sendDataToPeers({
+            type: 'SYSTEM_MESSAGE',
+            message: message
+        });
+    }
+}
+
 // --- Video and Chat Handlers ---
 
 // This function determines what message to send based on who is acting.
@@ -244,6 +266,27 @@ function handleVideoAction(action, time, isPlaying) {
         if (isPlaying !== undefined) {
             payload.isPlaying = isPlaying;
         }
+        
+        // If host is performing the action directly, broadcast a system message
+        if (isHost) {
+            let actionMessage = '';
+            switch (action) {
+                case 'PLAY':
+                    actionMessage = `▶️ Host played the video`;
+                    break;
+                case 'PAUSE':
+                    actionMessage = `⏸️ Host paused the video`;
+                    break;
+                case 'SEEK':
+                    actionMessage = `⏭️ Host seeked to ${time ? time.toFixed(1) : '?'}s`;
+                    break;
+            }
+            
+            if (actionMessage) {
+                broadcastSystemMessage(actionMessage);
+            }
+        }
+        
         sendDataToPeers(payload);
     }
 }
@@ -489,6 +532,9 @@ window.addEventListener('message', (event) => {
                 setTimeout(() => {
                     sendDataToPeers({ type: 'REQUEST_SYNC' });
                 }, 500);
+            } else {
+                // Host also gets a system message when connection is established
+                displayChatMessage('System', `✅ Party created successfully! Share your party code with friends.`);
             }
             
             // Show test connection button for both host and joiner
@@ -503,7 +549,10 @@ window.addEventListener('message', (event) => {
             // This is called when someone joins YOUR party (you're the host)
             if (isHost) {
                 console.log(`[Controller] Peer ${payload.peerId} joined the party`);
-                displayChatMessage('System', `A peer has joined the party! (${payload.peerId.slice(-6)})`);
+                const joinMessage = `A peer has joined the party! (${payload.peerId.slice(-6)})`;
+                
+                // Use the helper function to broadcast to everyone including host
+                broadcastSystemMessage(joinMessage);
                 
                 // Show test connection button for host too
                 const testBtn = document.getElementById('peersync-test-connection-btn');
@@ -569,7 +618,15 @@ window.addEventListener('message', (event) => {
                                 } else if (!payload.isPlaying && !videoElement.paused) {
                                     videoElement.pause();
                                 }
+                                // Local notification for the user being synced
                                 displayChatMessage('System', `🔄 Synced to host video (${payload.currentTime.toFixed(1)}s)`);
+                                
+                                // Also send a confirmation back to host so everyone knows sync completed
+                                sendDataToPeers({
+                                    type: 'SYNC_COMPLETED',
+                                    currentTime: payload.currentTime,
+                                    senderNickname: myNickname
+                                });
                                 break;
                         }
                         setTimeout(() => { isSyncing = false; }, 300); // Increased timeout for cross-device
@@ -580,6 +637,28 @@ window.addEventListener('message', (event) => {
                     // A controlled user is requesting an action. Only the host processes this.
                     if (isHost) {
                         console.log(`[Controller] Routing request from ${payload.senderId} to ${payload.action}`);
+                        
+                        // Get the requester's nickname for better messaging
+                        const requesterData = partyUsers.get(payload.senderId);
+                        const requesterName = requesterData ? requesterData.nickname : payload.senderId.slice(-6);
+                        
+                        // Notify everyone about who performed the action
+                        let actionMessage = '';
+                        switch (payload.action) {
+                            case 'PLAY':
+                                actionMessage = `▶️ ${requesterName} played the video`;
+                                break;
+                            case 'PAUSE':
+                                actionMessage = `⏸️ ${requesterName} paused the video`;
+                                break;
+                            case 'SEEK':
+                                actionMessage = `⏭️ ${requesterName} seeked to ${payload.time ? payload.time.toFixed(1) : '?'}s`;
+                                break;
+                        }
+                        
+                        if (actionMessage) {
+                            broadcastSystemMessage(actionMessage);
+                        }
                         
                         // 1. The Host acts on the request itself.
                         isSyncing = true;
@@ -612,11 +691,19 @@ window.addEventListener('message', (event) => {
                     displayChatMessage(payload.senderName, payload.message);
                     break;
 
+                case 'SYSTEM_MESSAGE':
+                    // Handle system messages sent from host to all peers
+                    displayChatMessage('System', payload.message);
+                    break;
+
                 case 'USER_INFO':
                     if (isHost) {
                         partyUsers.set(payload.senderId, { nickname: payload.nickname, canControl: false });
                         broadcastUserList();
                         updateUserListUI();
+                        
+                        // Notify everyone that a user has joined with their nickname
+                        broadcastSystemMessage(`${payload.nickname} has joined the party!`);
                     }
                     break;
 
@@ -626,6 +713,14 @@ window.addEventListener('message', (event) => {
                         const video = document.querySelector('video');
                         if (video) {
                             console.log(`[Controller] Sync requested by ${payload.senderId}, sending current state`);
+                            
+                            // Get the requester's nickname for a better message
+                            const requesterData = partyUsers.get(payload.senderId);
+                            const requesterName = requesterData ? requesterData.nickname : payload.senderId.slice(-6);
+                            
+                            // Notify everyone about the sync operation
+                            broadcastSystemMessage(`📡 Syncing ${requesterName} to current video position (${video.currentTime.toFixed(1)}s)`);
+                            
                             sendDataToPeers({
                                 type: 'VIDEO_ACTION',
                                 action: 'sync',
@@ -636,9 +731,20 @@ window.addEventListener('message', (event) => {
                     }
                     break;
 
+                case 'SYNC_COMPLETED':
+                    // When host receives sync completion confirmation, notify everyone
+                    if (isHost) {
+                        broadcastSystemMessage(`✅ ${payload.senderNickname} successfully synced to video position`);
+                    }
+                    break;
+
                 case 'CONNECTION_TEST':
                     console.log(`[Controller] Connection test received from ${payload.senderId}: ${payload.message}`);
-                    displayChatMessage('System', `✅ Connection test received: ${payload.message}`);
+                    const testReceivedMessage = `✅ Connection test received: ${payload.message}`;
+                    
+                    // Use the helper function to ensure all participants see the message
+                    broadcastSystemMessage(testReceivedMessage);
+                    
                     // Send a response back
                     sendDataToPeers({ 
                         type: 'CONNECTION_TEST_RESPONSE', 
@@ -658,7 +764,10 @@ window.addEventListener('message', (event) => {
                     if (latency > 500) quality = "Fair";
                     if (latency > 1000) quality = "Poor";
                     
-                    displayChatMessage('System', `✅ Connection test response received! Latency: ${latency}ms (${quality})`);
+                    const responseMessage = `✅ Connection test response received! Latency: ${latency}ms (${quality})`;
+                    
+                    // Use the helper function to ensure all participants see the response
+                    broadcastSystemMessage(responseMessage);
                     
                     // Test packet loss by sending 5 more test packets
                     for (let i = 0; i < 5; i++) {
@@ -724,8 +833,30 @@ window.addEventListener('message', (event) => {
                                 hostTime: hostTime
                             });
                             
-                            // Display message about the sync issue
-                            displayChatMessage('System', 'Video paused due to sync issue. Please wait while everyone catches up.');
+                            // Display message about the sync issue locally for host and broadcast to peers
+                            broadcastSystemMessage('⏸️ Video paused due to sync issue. Resyncing in 3 seconds...');
+                            
+                            // Wait 3 seconds, then sync everyone to current position and resume
+                            setTimeout(() => {
+                                if (videoElement && isHost) {
+                                    const currentTime = videoElement.currentTime;
+                                    console.log(`[Controller] Auto-resuming after sync issue at ${currentTime}s`);
+                                    
+                                    // Send sync command to all clients
+                                    sendDataToPeers({
+                                        type: 'VIDEO_ACTION',
+                                        action: 'sync',
+                                        currentTime: currentTime,
+                                        isPlaying: true // Resume playback after sync
+                                    });
+                                    
+                                    // Resume playback locally on host
+                                    videoElement.play();
+                                    
+                                    // Notify everyone that sync is complete and playback resumed
+                                    broadcastSystemMessage('▶️ Sync complete! Video resumed.');
+                                }
+                            }, 3000);
                         }
                     }
                     break;
@@ -734,9 +865,16 @@ window.addEventListener('message', (event) => {
         
         case 'PEERSYNC_CONNECTION_CLOSED':
             if (isHost) {
+                // Get the nickname before removing the user
+                const disconnectedUser = partyUsers.get(payload.peerId);
+                const nickname = disconnectedUser ? disconnectedUser.nickname : payload.peerId.slice(-6);
+                
                 partyUsers.delete(payload.peerId);
                 broadcastUserList();
                 updateUserListUI();
+                
+                // Notify everyone about the disconnection
+                broadcastSystemMessage(`${nickname} has left the party.`);
             } else if (payload.peerId === hostPeerId) {
                 // Find the next eligible host (first person who joined)
                 const remainingUsers = Array.from(partyUsers.keys())
@@ -745,13 +883,18 @@ window.addEventListener('message', (event) => {
                 if (remainingUsers.length > 0) {
                     const newHostId = remainingUsers[0];
                     hostPeerId = newHostId;
-                    displayChatMessage('System', `Host disconnected. ${partyUsers.get(newHostId).nickname} is now the host.`);
+                    const hostChangeMessage = `Host disconnected. ${partyUsers.get(newHostId).nickname} is now the host.`;
                     
-                    // If I'm the new host
+                    // If I'm the new host, broadcast the message to everyone
                     if (newHostId === myPeerId) {
                         isHost = true;
                         canControl = true;
                         broadcastUserList();
+                        // Use the helper function to notify everyone including the new host
+                        broadcastSystemMessage(hostChangeMessage);
+                    } else {
+                        // If I'm not the new host, just display locally
+                        displayChatMessage('System', hostChangeMessage);
                     }
                 } else {
                     alert("The host has disconnected. The party is over.");
