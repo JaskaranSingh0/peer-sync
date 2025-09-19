@@ -34,7 +34,7 @@ A Chrome browser extension that enables peer-to-peer synchronized YouTube video 
 
 1. **Download the Extension**
    ```bash
-   git clone https://github.com/yourusername/peer-sync.git
+   git clone https://github.com/jaskaransingh0/peer-sync.git
    cd peer-sync
    ```
 
@@ -304,3 +304,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Made with ❤️ for synchronized entertainment**
 
 *PeerSync v0.1.0 - Bringing people together through shared experiences*
+
